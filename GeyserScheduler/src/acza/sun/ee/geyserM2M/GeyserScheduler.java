@@ -66,40 +66,46 @@ public class GeyserScheduler {
 		
 		nscl = new SCLapi("nscl", NSCL_IP_ADD, "8080", "admin:admin");
 		
-		//If application not yet registered at NSCL, then register it.
-		if(!nscl.applicationExists(app_ID)){
-			//Register application
-			nscl.registerApplication(app_ID);
-		
-			//Register schedule settings containers, and populate with initial content
+		try{ //Catch-all 
+
+			//If application not yet registered at NSCL, then register it.
+			if(!nscl.applicationExists(app_ID)){
+				//Register application
+				nscl.registerApplication(app_ID);
+
+				//Register schedule settings containers, and populate with initial content
+				for (long geyser_id:list_of_geysers){
+					nscl.createContainer(app_ID, "SCHEDULE_"+geyser_id);
+					nscl.createContentInstance(app_ID, "SCHEDULE_"+geyser_id, String.valueOf(scheduleArraytoString(DEFAULT_SCHEDULE)));
+				}
+			}
+
+			//Calculate current time
+			Calendar rightNow = Calendar.getInstance();
+			int hour = rightNow.get(Calendar.HOUR_OF_DAY);
+			int minute = rightNow.get(Calendar.MINUTE);
+			int current_timeslot = ((hour*60)+minute)/15;
+
+			System.out.println("Current time: " + hour + ":" + minute + " = slot " + current_timeslot);
+
+
 			for (long geyser_id:list_of_geysers){
-				nscl.createContainer(app_ID, "SCHEDULE_"+geyser_id);
-				nscl.createContentInstance(app_ID, "SCHEDULE_"+geyser_id, String.valueOf(scheduleArraytoString(DEFAULT_SCHEDULE)));
+				String schedule_str = nscl.retrieveLatestContent(app_ID, "SCHEDULE_"+geyser_id);
+
+				try {
+					int[] schedule_arr = scheduleStringtoArray(schedule_str);
+
+					//Post new setpoint to NSCL
+					nscl.createContentInstance("Setpointcontroller", "SETPOINT_"+geyser_id, String.valueOf(schedule_arr[current_timeslot]));
+
+				} catch (ParseException e) {
+					logger.error("Corrupt SCHEDULE format for Geyser: " + geyser_id, e);
+				}
 			}
-		}
-		
-		//Calculate current time
-		Calendar rightNow = Calendar.getInstance();
-		int hour = rightNow.get(Calendar.HOUR_OF_DAY);
-		int minute = rightNow.get(Calendar.MINUTE);
-		int current_timeslot = ((hour*60)+minute)/15;
-		
-		System.out.println("Current time: " + hour + ":" + minute + " = slot " + current_timeslot);
-		
-		
-		for (long geyser_id:list_of_geysers){
-			String schedule_str = nscl.retrieveLatestContent(app_ID, "SCHEDULE_"+geyser_id);
-			
-			try {
-				int[] schedule_arr = scheduleStringtoArray(schedule_str);
-				
-				//Post new setpoint to NSCL
-				nscl.createContentInstance("Setpointcontroller", "SETPOINT_"+geyser_id, String.valueOf(schedule_arr[current_timeslot]));
-				logger.info("Setting geyser " + geyser_id + " to setpoint: " + schedule_arr[current_timeslot]);
-				
-			} catch (ParseException e) {
-				logger.error("Corrupt SCHEDULE format for Geyser: " + geyser_id, e);
-			}
+
+		}catch(Exception e){
+			logger.fatal("Unexpexted exception. Check if NSCL is running.", e);
+			return;
 		}
 	}
 
