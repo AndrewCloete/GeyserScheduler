@@ -15,47 +15,59 @@ package acza.sun.ee.geyserM2M;
 import java.text.ParseException;
 import java.util.Arrays;
 import java.util.Calendar;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.LinkedList;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.om2m.commons.utils.XmlMapper;
+
+import java.io.IOException;
+import java.util.Properties;
 
 
 public class GeyserScheduler {
 
 	private static final Logger logger = LogManager.getLogger(GeyserScheduler.class);
 	private static SCLapi nscl;
-	//private static Map<Long, int[]> geyser_schedule_map = new ConcurrentHashMap<Long, int[]>();//<geyser_ID, setpiont> 
+	
+	private static String NSCL_BASE_URL;
+	private static String AUTH;
 	
 	private static String app_ID = "Scheduler";
 	
-	private static long[] list_of_geysers = {1, 112};
+	private static LinkedList<Long> list_of_geysers;
 	
 	private static int[] DEFAULT_SCHEDULE = new int[96]; //96*15 minute intervals = 24 hours
 	
 	
 	public static void main(String[] args) {
 		
-		// ---------------------- Sanity checking of command line arguments -------------------------------------------
-		if( args.length != 1)
-		{
-			System.out.println( "Usage: <NSCL IP address>" ) ;
-			return;
-		}
-
-		final String NSCL_IP_ADD = args[0];//"52.10.236.177";//"localhost";//
-		if(!ipAddressValidator(NSCL_IP_ADD)){
-			System.out.println( "IPv4 address invalid." ) ;
+		// ---------------------- Reading and sanity checking configuration parameters -------------------------------------------
+		Properties configFile = new Properties();
+		try {
+			configFile.load(GeyserScheduler.class.getClassLoader().getResourceAsStream("config.properties"));
+			
+			NSCL_BASE_URL = configFile.getProperty("NSCL_BASE_URL");
+			AUTH = configFile.getProperty("AUTH");		
+			
+			//Populate list of geysers to control from config file
+			try{
+			list_of_geysers = new LinkedList<Long>();
+			String[] geyser_list = configFile.getProperty("GEYSER_LIST").split(",");
+			for(int i = 0; i < geyser_list.length; i++){
+				list_of_geysers.add(new Long(geyser_list[i]));
+			}
+			}catch(Exception e){
+				logger.fatal("Error in parsing EWH list from config.properties. Please use CSV.", e);
+				return;
+			}
+			System.out.println("GeyserScheduler started with parameters: " + configFile.toString());
+			//logger.info("GeyserScheduler started with parameters: " + configFile.toString());
+			
+		} catch (IOException e) {
+			logger.fatal("Error in configuration file \"config.properties\"", e);
 			return;
 		}
 		//-------------------------------------------------------------------------------------------------------
-		
-		logger.info("GeyserScheduler usage: <NSCL IP address>");
-		logger.info("GeyserScheduler started with parameters: " + args[0]);
 		
 		
 		//Initialise the default schedule
@@ -64,7 +76,10 @@ public class GeyserScheduler {
 		DEFAULT_SCHEDULE[48] = DEFAULT_SCHEDULE[49] = 45; //12h-12h30 = 45 degrees.
 		DEFAULT_SCHEDULE[64] = DEFAULT_SCHEDULE[65] = DEFAULT_SCHEDULE[66] = DEFAULT_SCHEDULE[67] = 55; //16h-17h = 50 degrees
 		
-		nscl = new SCLapi("nscl", NSCL_IP_ADD, "8080", "admin:admin");
+		if(AUTH.equalsIgnoreCase("NONE"))
+			nscl = new SCLapi(NSCL_BASE_URL);	//OpenMTC
+		else
+			nscl = new SCLapi(NSCL_BASE_URL, AUTH); //OM2M
 		
 		try{ //Catch-all 
 
@@ -97,7 +112,8 @@ public class GeyserScheduler {
 
 					//Post new setpoint to NSCL
 					nscl.createContentInstance("Setpointcontroller", "SETPOINT_"+geyser_id, String.valueOf(schedule_arr[current_timeslot]));
-
+					System.out.println("Posted a setpoint of " + schedule_arr[current_timeslot] + " to geyser_" + geyser_id);
+					
 				} catch (ParseException e) {
 					logger.error("Corrupt SCHEDULE format for Geyser: " + geyser_id, e);
 				}
@@ -136,17 +152,6 @@ public class GeyserScheduler {
 		}
 		
 		return array;
-	}
-	
-	
-	private static boolean ipAddressValidator(final String ip_adr){
-		
-		if(ip_adr.equalsIgnoreCase("localhost"))
-			return true;
-		
-		 Pattern adr_pattern = Pattern.compile("^(([01]?\\d\\d?|2[0-4]\\d|25[0-5])\\.){3}([01]?\\d\\d?|2[0-4]\\d|25[0-5])$", Pattern.DOTALL);
-		 Matcher matcher = adr_pattern.matcher(ip_adr);
-		 return matcher.matches();
 	}
 }
 
